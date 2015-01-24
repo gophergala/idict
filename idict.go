@@ -8,16 +8,19 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
+//	"time"
 	"bufio"
 	"strconv"
+	"io"
+	"sync"
+	"path/filepath"
 )
 
 type LinguaResp struct {
-	ErrorMsg string   `json:"error_msg"`
-	Count    uint         `json:"count_words"`
-	ShowMore bool      `json:"show_more"`
-	Userdict []Userdict `json:"userdict3"`
+	ErrorMsg string      `json:"error_msg"`
+	Count    uint      	`json:"count_words"`
+	ShowMore bool      	`json:"show_more"`
+	Userdict []Userdict  `json:"userdict3"`
 }
 
 type Userdict struct {
@@ -44,12 +47,15 @@ type UserTranslate struct {
 const (
 	linguaDictUrl  = "http://lingualeo.com/userdict/json"
 	linguaLoginUrl = "http://api.lingualeo.com/api/login"
-	pageCount      = 2 // restriction policy, you have 116
+	pageCount      = 1 // restriction policy, you have 116
 	httpTimeout    = 15
 )
 
 var client *gorequest.SuperAgent
 var showMore = true
+var importFile *os.File
+var supplyChan chan string
+var wg sync.WaitGroup
 
 type Config struct {
 	Email    string
@@ -78,9 +84,16 @@ func main() {
 	config := readConfig("settings.txt")
 	authLeo(config.Email, config.Password)
 	fmt.Printf("I'll grab %v pages", pageCount)
-	for i := 4; i <= 6; i++ {
+	supplyChan = make(chan string, 2)
+	importFile, _ = os.OpenFile("import.anki.txt", os.O_CREATE | os.O_APPEND | os.O_RDWR, 0666); defer importFile.Close()
+	go downloadResources()
+	
+	for i := 1; showMore; i++ {
 		leoAskPage(i)
 	}
+	
+	wg.Wait()
+	fmt.Println("Finished")
 }
 
 /**
@@ -88,7 +101,7 @@ func main() {
  */
 func leoAskPage(page int) {
 	pageNumber := strconv.Itoa(page)
-	fmt.Printf("Url " + linguaDictUrl + "sortBy=date&wordType=0&filter=all&page=" + pageNumber)
+	fmt.Println("Url " + linguaDictUrl + "sortBy=date&wordType=0&filter=all&page=" + pageNumber)
 	_, body, errs := client.Post(linguaDictUrl).
 									Query("page=" + pageNumber).
 									Query("sortBy=date").Query("wordType=0").Query("filter=all").
@@ -105,6 +118,7 @@ func leoAskPage(page int) {
 	userdicts := linguaResp.Userdict
 	fmt.Printf("\n === %v User Dictionaries \n", len(userdicts))
 	for i := 0; i < len(userdicts); i++ {
+		ankiImport(userdicts[i].Words, importFile, supplyChan)
 //		userdicts[i].Print()
 	}
 	//	fmt.Printf("Decoded %v \n", linguaResp)
@@ -128,7 +142,7 @@ func (w *Word) Print() {
 }
 
 func authLeo(email, password string) {
-	client = gorequest.New().Timeout(httpTimeout*time.Second)
+	client = gorequest.New() //.Timeout(httpTimeout*time.Second)
 	resp, body, errs := client.Get(linguaLoginUrl).Query("email=" + email).Query("password=" + password).End()
 	if errs != nil {
 		log.Fatalf("%v \n", errs)
@@ -148,6 +162,88 @@ func linguaLeoAPI() string {
 	result := fmt.Sprintf(linguaDictUrl)
 	log.Println("Api " + result)
 	return result
+}
+
+func ankiImport(words []Word, file *os.File, sinkChan chan string) error {
+	w := bufio.NewWriter(file)
+	for i := 0; i < len(words); i++ {
+		word := words[i]
+		str := word.plainImport()
+		wg.Add(2)
+		sinkChan <- word.SoundUrl
+		sinkChan <- word.PictureUrl
+		fmt.Printf("ankiImport %v", str)
+		_, err := w.WriteString(str)
+		if err != nil {
+			panic(err)
+		}
+//		fmt.Printf("Written %v", written)
+	}
+	w.Flush()
+	return nil
+}
+
+func (w *Word) plainImport() string {
+	localSound := getName(w.SoundUrl)
+	localPiclure := getName(w.PictureUrl)
+	return fmt.Sprintf("%v\t%v\t%v\t%v\t\n", w.Value, w.Translates, localPiclure, localSound)
+}
+
+func downloadResources() error {
+	for {
+		r := <- supplyChan
+		go downloadFromUrl(r)		
+	}
+	
+}
+
+/**
+ * path: FS path or Url
+ */
+func getName(path string) string {
+	tokens := strings.Split(path, "/")
+	fileName := tokens[len(tokens)-1]
+	return fileName 
+}
+
+func downloadFromUrl(url string) {
+	defer wg.Done()
+	//todo remove stub
+//	return
+	
+	if url == "" {
+		return
+	}
+	if !strings.HasPrefix(url, "http:") {
+		 url = "http:" + url
+	}
+	fileName := getName(url)
+//	fmt.Println("Downloading", url, "to", fileName)
+
+	absPath, _ := filepath.Abs("./resources/" + fileName)
+	if _, err := os.Stat(absPath); err == nil {
+		return
+	}
+	output, err := os.Create(absPath)
+	if err != nil {
+		fmt.Println("Error while creating", fileName, "-", err)
+		return
+	}
+	defer output.Close()
+
+	response, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Error while downloading", url, "-", err)
+		return
+	}
+	defer response.Body.Close()
+
+	_, err = io.Copy(output, response.Body)
+	if err != nil {
+		fmt.Println("Error while downloading", url, "-", err)
+		return
+	}
+//	fmt.Println(n, "bytes downloaded.")
 }
 
 type LoginResp struct {
