@@ -14,6 +14,7 @@ import (
 	"io"
 	"sync"
 	"path/filepath"
+	"time"
 )
 
 type LinguaResp struct {
@@ -85,7 +86,8 @@ func main() {
 	authLeo(config.Email, config.Password)
 	fmt.Printf("I'll grab %v pages", pageCount)
 	supplyChan = make(chan string, 2)
-	importFile, _ = os.OpenFile("import.anki.txt", os.O_CREATE | os.O_APPEND | os.O_RDWR, 0666); defer importFile.Close()
+	importFileName := "import.anki." + fmt.Sprintf("%v", time.Now().Local()) + ".txt"
+	importFile, _ = os.OpenFile(importFileName, os.O_CREATE | os.O_APPEND | os.O_RDWR, 0666); defer importFile.Close()
 	go downloadResources()
 	
 	for i := 1; showMore; i++ {
@@ -114,7 +116,7 @@ func leoAskPage(page int) {
 	var linguaResp LinguaResp
 	json.NewDecoder(strings.NewReader(body)).Decode(&linguaResp)
 	showMore = linguaResp.ShowMore
-	fmt.Printf("\n ShowMore %v \n", showMore)
+//	fmt.Printf("\n ShowMore %v \n", showMore)
 	userdicts := linguaResp.Userdict
 	fmt.Printf("\n === %v User Dictionaries \n", len(userdicts))
 	for i := 0; i < len(userdicts); i++ {

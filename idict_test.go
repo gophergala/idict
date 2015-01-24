@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 	"os"
+	"time"
 )
 
 func TestReadConfig(t *testing.T) {
@@ -18,4 +19,9 @@ func TestAnkiImport(t *testing.T) {
 	ankiImport(words, file, channel)
 	
 	<- channel; <- channel
+}
+
+func TestImportFile(t *testing.T) {
+	fmt.Println("import.anki." + fmt.Sprintf("%v", time.Now().Local()) + ".txt")
+	
 }
