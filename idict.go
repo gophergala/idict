@@ -48,6 +48,7 @@ type UserTranslate struct {
 const (
 	linguaDictUrl  = "http://lingualeo.com/userdict/json"
 	linguaLoginUrl = "http://api.lingualeo.com/api/login"
+	linguaTranslateUrl = "http://api.lingualeo.com/gettranslates"
 	pageCount      = 1 // restriction policy, you have 116
 	httpTimeout    = 15
 )
@@ -266,8 +267,6 @@ func addWord(word, tword string) {
 }
 
 func getTranslates(word string) {
-	url := "http://api.lingualeo.com/gettranslates"
-	params := "?word=" + word
-	fmt.Printf("%v %v", url, params)
+	client.Get(linguaTranslateUrl).Query("word=" + word);
 }
 
